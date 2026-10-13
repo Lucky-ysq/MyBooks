@@ -1,0 +1,23 @@
+# ==== Java 后端 ====
+backend/target/
+*.class
+*.jar
+!backend/lib/*.jar
+backend/data/*.db
+backend/logs/
+
+# ==== IDE ====
+.idea/
+*.iml
+.vscode/
+.HBuilderX/
+
+# ==== 前端 uniapp ====
+app/unpackage/
+app/node_modules/
+app/dist/
+
+# ==== 系统文件 ====
+.DS_Store
+Thumbs.db
+*.log
