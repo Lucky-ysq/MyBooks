@@ -1,4 +1,6 @@
 <script>
+const downloader = require('./common/downloader.js')
+
 export default {
   onLaunch() {
     // 首次启动初始化：服务器地址默认本机（调试），阅读偏好默认值
@@ -15,6 +17,8 @@ export default {
         keepScreenOn: true // 阅读时屏幕常亮
       })
     }
+    // 恢复未完成的下载任务
+    downloader.init()
   }
 }
 </script>
