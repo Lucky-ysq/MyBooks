@@ -1,0 +1,20 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: yuxia-books
+  datasource:
+    driver-class-name: org.sqlite.JDBC
+    url: jdbc:sqlite:data/mybooks.db   # SQLite 单文件数据库，相对运行目录
+  sql:
+    init:
+      mode: always                     # 每次启动执行 schema.sql（都是 IF NOT EXISTS，无副作用）
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true # 数据库下划线字段 ↔ Java 驼峰属性
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_id               # 主键由 MyBatis-Plus 雪花算法生成，不依赖数据库自增
