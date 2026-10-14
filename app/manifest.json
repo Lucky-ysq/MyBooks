@@ -1,0 +1,33 @@
+{
+  "name": "遇夏小说",
+  "appid": "",
+  "description": "个人使用的小说阅读软件（书源自行配置）",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "vueVersion": "3",
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {},
+    "distribute": {
+      "android": {
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>"
+        ]
+      },
+      "ios": {},
+      "sdkConfigs": {}
+    }
+  },
+  "quickapp": {},
+  "mp-weixin": { "appid": "", "setting": { "urlCheck": false }, "usingComponents": true },
+  "networkTimeout": { "request": 30000 }
+}

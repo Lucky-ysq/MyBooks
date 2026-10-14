@@ -1,0 +1,66 @@
+{
+  "pages": [
+    {
+      "path": "pages/bookshelf/bookshelf",
+      "style": { "navigationBarTitleText": "遇夏小说" }
+    },
+    {
+      "path": "pages/mine/mine",
+      "style": { "navigationBarTitleText": "我的" }
+    },
+    {
+      "path": "pages/search/search",
+      "style": { "navigationBarTitleText": "搜索图书" }
+    },
+    {
+      "path": "pages/reader/reader",
+      "style": { "navigationBarTitleText": "阅读", "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/catalog/catalog",
+      "style": { "navigationBarTitleText": "目录" }
+    },
+    {
+      "path": "pages/source/source",
+      "style": { "navigationBarTitleText": "书源管理" }
+    },
+    {
+      "path": "pages/preference/preference",
+      "style": { "navigationBarTitleText": "阅读偏好" }
+    },
+    {
+      "path": "pages/downloads/downloads",
+      "style": { "navigationBarTitleText": "下载管理" }
+    },
+    {
+      "path": "pages/about/about",
+      "style": { "navigationBarTitleText": "关于遇夏小说" }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "遇夏小说",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F5F6F7"
+  },
+  "tabBar": {
+    "color": "#9AA0A6",
+    "selectedColor": "#E8383D",
+    "borderStyle": "black",
+    "backgroundColor": "#FFFFFF",
+    "list": [
+      {
+        "pagePath": "pages/bookshelf/bookshelf",
+        "text": "书架",
+        "iconPath": "static/tabbar/shelf.png",
+        "selectedIconPath": "static/tabbar/shelf-on.png"
+      },
+      {
+        "pagePath": "pages/mine/mine",
+        "text": "我的",
+        "iconPath": "static/tabbar/mine.png",
+        "selectedIconPath": "static/tabbar/mine-on.png"
+      }
+    ]
+  }
+}
