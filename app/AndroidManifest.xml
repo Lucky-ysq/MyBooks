@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自定义 Android 清单文件（HBuilderX 3.6+ 支持，云打包时会合并进 APK）
+  放在项目根目录，文件名必须完全一致：AndroidManifest.xml
+
+  【为什么需要它】
+  安卓 9（API 28）起，系统默认禁止 App 发起 HTTP 明文请求（cleartext traffic）。
+  uni-app 云打包默认 targetSdkVersion=28，所以如果后端地址是 http://IP:8080，
+  不加下面的配置，App 请求会被系统直接拦掉，表现为「连不上服务器」。
+
+  下面 android:usesCleartextTraffic="true" 就是放开明文 HTTP。
+
+  【什么时候可以删掉】
+  后端上线 HTTPS（https://你的域名）后，本文件可以删除（留着也无副作用）。
+
+  【注意】
+  package 属性要和 HBuilderX 云打包时填的「安卓包名」保持一致，否则打包可能报错。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools"
+          package="com.yuxia.books">
+    <application android:usesCleartextTraffic="true" />
+</manifest>
