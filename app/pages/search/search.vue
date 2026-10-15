@@ -47,7 +47,8 @@
         </scroll-view>
         <view class="dialog-btns">
           <button class="btn btn-ghost" size="mini" @click="detail = null">取消</button>
-          <button class="btn btn-primary" size="mini" :disabled="adding" @click="addShelf">{{ inShelf ? '已在书架' : '加入书架' }}</button>
+          <button class="btn btn-ghost" size="mini" :disabled="adding" @click="addShelf(false)">{{ inShelf ? '已在书架' : '加入书架' }}</button>
+          <button class="btn btn-primary" size="mini" :disabled="adding" @click="addShelf(true)">立即阅读</button>
         </view>
       </view>
     </view>
@@ -142,17 +143,24 @@ export default {
         uni.showToast({ title: String(err), icon: 'none' })
       })
     },
-    /** 加入书架：拉目录记总章数，写本地存储 */
-    addShelf() {
+    /**
+     * 加入书架：拉目录记总章数，写本地存储。
+     * thenRead=true（点「立即阅读」）时，加完书架直接进阅读页——
+     * 阅读页是从书架取书的，所以必须先入书架。
+     */
+    addShelf(thenRead) {
+      const d = this.detail
+      if (!d) return
+      const id = util.bookId(d.bookUrl)
+      // 已在书架：关弹窗；点「立即阅读」则直接进阅读页
       if (this.inShelf) {
         this.detail = null
+        if (thenRead) this.openReader(id)
         return
       }
       this.adding = true
-      const d = this.detail
       api.getChapters(d.sourceId, d.bookUrl).then(chapters => {
         const shelf = uni.getStorageSync('bookshelf') || []
-        const id = util.bookId(d.bookUrl)
         shelf.push({
           id: id,
           name: d.name,
@@ -173,10 +181,15 @@ export default {
         this.adding = false
         this.detail = null
         uni.showToast({ title: '已加入书架', icon: 'success' })
+        if (thenRead) this.openReader(id)
       }).catch(err => {
         this.adding = false
         uni.showToast({ title: '目录获取失败：' + err, icon: 'none', duration: 2500 })
       })
+    },
+    /** 进入阅读页 */
+    openReader(id) {
+      uni.navigateTo({ url: '/pages/reader/reader?bookId=' + id })
     }
   },
   computed: {
@@ -310,8 +323,12 @@ export default {
 .dialog-btns {
   margin-top: 28rpx;
   display: flex;
-  justify-content: flex-end;
 }
+.dialog-btns .btn {
+  flex: 1;
+  margin: 0 0 0 16rpx;
+}
+.dialog-btns .btn:first-child { margin-left: 0; }
 .btn-primary { background: #e8383d; color: #ffffff; }
 .btn-ghost { background: #f5f6f7; color: #666666; margin-right: 16rpx; }
 </style>
