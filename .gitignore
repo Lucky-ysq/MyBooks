@@ -21,3 +21,6 @@ app/dist/
 .DS_Store
 Thumbs.db
 *.log
+
+# ==== 本地工作记忆（含环境/账号信息，不进公开仓库）====
+.workbuddy-ai/
