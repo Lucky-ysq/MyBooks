@@ -19,11 +19,20 @@ import org.springframework.stereotype.Service;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -121,6 +130,219 @@ public class BookService {
             }
         }
         return result;
+    }
+
+    // ---------- 全站聚合搜索 ----------
+
+    /** 聚合搜索总超时：到点未返回的书源标记为超时失败，接口最多 25s 必返回 */
+    private static final long SEARCH_ALL_TIMEOUT_MS = 25000L;
+
+    /** 聚合搜索最多返回的结果条数 */
+    private static final int SEARCH_ALL_MAX_RESULTS = 100;
+
+    /** 聚合搜索并发线程数：书源再多也只有 8 个同时抓，避免把对方站和自己站都拖垮 */
+    private static final int SEARCH_ALL_POOL_SIZE = 8;
+
+    /**
+     * 全站聚合搜索：并发搜索所有启用的书源。
+     * - 单源失败/超时只记录原因（failedSources），不影响其他源；
+     * - mock 演示源始终返回全部 3 本演示书兜底（真实源全挂时用户也有东西可看）；
+     * - 结果按相关度打分降序排列，按 name+author 归一化去重，最多返回 100 条。
+     */
+    public Map<String, Object> searchAll(String keyword) {
+        if (keyword == null || keyword.trim().isEmpty()) {
+            throw new IllegalArgumentException("搜索关键字不能为空");
+        }
+        final String key = keyword.trim();
+
+        // 只搜启用的书源；顺序沿用书源列表（默认源优先、id 升序），保证同分时排序稳定
+        List<BookSource> enabled = new ArrayList<BookSource>();
+        for (BookSource s : sourceService.list()) {
+            if (Boolean.TRUE.equals(s.getEnabled())) {
+                enabled.add(s);
+            }
+        }
+
+        List<Map<String, Object>> results = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> failedSources = new ArrayList<Map<String, Object>>();
+        int successSources = 0;
+
+        ThreadPoolExecutor executor =
+                (ThreadPoolExecutor) Executors.newFixedThreadPool(SEARCH_ALL_POOL_SIZE);
+        try {
+            // 每个书源一个任务。任务内自己 try 之外的异常交给 Future 收集，
+            // 单个书源失败绝不影响其他书源（单源隔离）。
+            List<Callable<List<Map<String, Object>>>> tasks =
+                    new ArrayList<Callable<List<Map<String, Object>>>>();
+            for (final BookSource s : enabled) {
+                tasks.add(new Callable<List<Map<String, Object>>>() {
+                    public List<Map<String, Object>> call() {
+                        if (isMock(s)) {
+                            // 传空关键字 = 不做关键字过滤，聚合场景下演示源固定出全部演示书
+                            return MockBookData.search("");
+                        }
+                        return search(s.getId(), key);
+                    }
+                });
+            }
+            // invokeAll + 超时：25s 到点没跑完的任务会被取消，接口不会被慢站拖死
+            List<Future<List<Map<String, Object>>>> futures =
+                    executor.invokeAll(tasks, SEARCH_ALL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            for (int i = 0; i < futures.size(); i++) {
+                BookSource s = enabled.get(i);
+                Future<List<Map<String, Object>>> f = futures.get(i);
+                try {
+                    if (f.isCancelled()) {
+                        // 超时被 invokeAll 取消
+                        failedSources.add(failedSource(s, "搜索超时（超过 25 秒）"));
+                        continue;
+                    }
+                    List<Map<String, Object>> list = f.get();
+                    successSources++;
+                    for (Map<String, Object> item : list) {
+                        // search() 返回的条目不带书源信息，聚合层自己补上，前端要展示来源
+                        item.put("sourceId", s.getId());
+                        item.put("sourceName", s.getName());
+                        item.put("score", Integer.valueOf(searchScore(item, key)));
+                        results.add(item);
+                    }
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    failedSources.add(failedSource(s,
+                            cause != null ? cause.getMessage() : "未知错误"));
+                } catch (Exception e) {
+                    failedSources.add(failedSource(s, e.getMessage()));
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("聚合搜索被中断", e);
+        } finally {
+            executor.shutdown();
+        }
+
+        // 同分时保持书源列表的先后顺序（List.sort 稳定排序），即"书源自定义顺序"
+        List<Map<String, Object>> merged = mergeDuplicates(results);
+        Collections.sort(merged, new Comparator<Map<String, Object>>() {
+            public int compare(Map<String, Object> a, Map<String, Object> b) {
+                return ((Integer) b.get("score")).compareTo((Integer) a.get("score"));
+            }
+        });
+        if (merged.size() > SEARCH_ALL_MAX_RESULTS) {
+            merged = new ArrayList<Map<String, Object>>(merged.subList(0, SEARCH_ALL_MAX_RESULTS));
+        }
+
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("keyword", key);
+        out.put("total", Integer.valueOf(merged.size()));
+        out.put("successSources", Integer.valueOf(successSources));
+        out.put("failedSources", failedSources);
+        out.put("results", merged);
+        return out;
+    }
+
+    /** 组装一条失败书源记录 */
+    private Map<String, Object> failedSource(BookSource s, String reason) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        m.put("sourceId", s.getId());
+        m.put("sourceName", s.getName());
+        m.put("reason", reason == null || reason.isEmpty() ? "未知错误" : reason);
+        return m;
+    }
+
+    /**
+     * 相关性打分（忽略大小写；"完全相等"额外忽略空格）：
+     * 书名与关键字完全相同 1000；书名包含关键字 500（位置越前分越高）；
+     * 作者完全相同 300；作者包含 150；简介包含 50。
+     */
+    private int searchScore(Map<String, Object> item, String keyword) {
+        String kw = keyword.toLowerCase();
+        String kwCompact = removeSpaces(kw);
+        String name = str(item.get("name")).toLowerCase();
+        String author = str(item.get("author")).toLowerCase();
+        String intro = str(item.get("intro")).toLowerCase();
+
+        int score = 0;
+        if (removeSpaces(name).equals(kwCompact)) {
+            score += 1000;
+        } else {
+            int pos = name.indexOf(kw);
+            if (pos >= 0) {
+                // 关键字出现在书名越前面，越可能是用户想找的那本
+                score += 500 + Math.max(0, 100 - pos * 10);
+            }
+        }
+        if (removeSpaces(author).equals(kwCompact)) {
+            score += 300;
+        } else {
+            int pos = author.indexOf(kw);
+            if (pos >= 0) {
+                score += 150 + Math.max(0, 50 - pos * 5);
+            }
+        }
+        if (!kw.isEmpty() && intro.contains(kw)) {
+            score += 50;
+        }
+        return score;
+    }
+
+    /**
+     * 按 name+author 归一化（trim + 小写 + 去空格）去重：
+     * 保留分数高的条目；落选来源的书源名并入 alsoFrom，前端可提示"另有来源 N 个"。
+     */
+    private List<Map<String, Object>> mergeDuplicates(List<Map<String, Object>> all) {
+        Map<String, Map<String, Object>> best = new LinkedHashMap<String, Map<String, Object>>();
+        for (Map<String, Object> item : all) {
+            String dedupKey = removeSpaces(str(item.get("name")).trim().toLowerCase())
+                    + "|" + removeSpaces(str(item.get("author")).trim().toLowerCase());
+            Map<String, Object> cur = best.get(dedupKey);
+            if (cur == null) {
+                best.put(dedupKey, item);
+            } else if (((Integer) item.get("score")).intValue() > ((Integer) cur.get("score")).intValue()) {
+                mergeSourceName(cur, item);
+                best.put(dedupKey, item);
+            } else {
+                mergeSourceName(item, cur);
+            }
+        }
+        return new ArrayList<Map<String, Object>>(best.values());
+    }
+
+    /** 把落选来源的书源名并入胜出者的 alsoFrom */
+    @SuppressWarnings("unchecked")
+    private void mergeSourceName(Map<String, Object> loser, Map<String, Object> winner) {
+        String from = str(loser.get("sourceName"));
+        if (from.isEmpty() || from.equals(str(winner.get("sourceName")))) {
+            return;
+        }
+        Object also = winner.get("alsoFrom");
+        List<String> names;
+        if (also == null) {
+            names = new ArrayList<String>();
+            winner.put("alsoFrom", names);
+        } else {
+            names = (List<String>) also;
+        }
+        if (!names.contains(from)) {
+            names.add(from);
+        }
+    }
+
+    /** Object 安全转字符串 */
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o).trim();
+    }
+
+    /** 去掉所有空白字符（用于"忽略空格"的相等判断） */
+    private static String removeSpaces(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!Character.isWhitespace(c)) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     // ---------- 详情 ----------

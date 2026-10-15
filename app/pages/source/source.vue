@@ -29,7 +29,7 @@
         <input class="e-input" v-model="form.name" placeholder="如：我的书源" />
 
         <text class="e-label">网址 *</text>
-        <input class="e-input" v-model="form.baseUrl" placeholder="如 https://www.xxbiquge.com" />
+        <input class="e-input" v-model="form.baseUrl" placeholder="https://www.xxx.com（不带 http 也可以）" />
 
         <!-- 高级模式开关 -->
         <view class="e-adv-row" @click="advanced = !advanced">
@@ -164,10 +164,21 @@ export default {
       const p = f.id
         ? api.updateSource(f.id, Object.assign({ enabled: true }, body))
         : api.saveSource(Object.assign({ enabled: true }, body))
-      p.then(() => {
-        this.editing = false
+      p.then(res => {
         this.load()
-        uni.showToast({ title: '已保存', icon: 'success' })
+        // 保存接口现在会附带自动测试结果：{ source, test: { ok, resultCount, message } }
+        const t = res && res.test
+        if (t && t.ok) {
+          this.editing = false
+          uni.showToast({ title: '已保存，测试搜到 ' + t.resultCount + ' 条结果', icon: 'success' })
+        } else if (t && t.message) {
+          // 保存已成功，但测试没过：保留编辑器展开显示原因，方便继续改规则
+          this.testResult = t.message
+          uni.showToast({ title: '已保存，但测试未通过', icon: 'none' })
+        } else {
+          this.editing = false
+          uni.showToast({ title: '已保存', icon: 'success' })
+        }
       }).catch(err => {
         uni.showToast({ title: String(err), icon: 'none' })
       })
@@ -225,8 +236,10 @@ export default {
       } else {
         // 新源：先临时创建再测，测试后删除
         api.saveSource(Object.assign({ enabled: false }, { name: (f.name.trim() || '临时测试') + '（测试）', baseUrl: f.baseUrl.trim(), rules: f.rules || '' }))
-          .then(created => {
-            api.testSource(created.id, '斗破')
+          .then(res => {
+            // 保存接口返回 { source, test }，兼容直接返回源对象的老结构
+            const c = (res && res.source) || res
+            api.testSource(c.id, '斗破')
               .then(list => {
                 this.testing = false
                 this.testResult = list && list.length > 0
@@ -234,7 +247,7 @@ export default {
                   : '△ 连接成功但没搜到结果，可能需要调整高级规则（未保存）'
               })
               .catch(err => { this.testing = false; this.testResult = '✗ ' + err })
-              .finally(() => { api.deleteSource(created.id).catch(() => {}) })
+              .finally(() => { api.deleteSource(c.id).catch(() => {}) })
           })
           .catch(err => { this.testing = false; this.testResult = String(err) })
       }

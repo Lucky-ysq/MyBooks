@@ -97,6 +97,11 @@ export default {
     return send('/api/sources/import?url=' + encodeURIComponent(url), 'POST')
   },
 
+  /** 全站聚合搜索（并发搜所有启用的书源，返回 score 降序+去重结果） */
+  searchAll(keyword) {
+    return get('/api/search/all', { keyword: keyword })
+  },
+
   /** 搜索图书 */
   search(sourceId, keyword) {
     return get('/api/search', { sourceId: sourceId, keyword: keyword })

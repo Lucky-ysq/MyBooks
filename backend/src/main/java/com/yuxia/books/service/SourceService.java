@@ -117,6 +117,12 @@ public class SourceService {
         }
     }
 
+    /**
+     * 校验并规范化书源：
+     * 1. 名称、网址非空；mock:// 内置源特例放行；
+     * 2. baseUrl 规范化（trim、去误粘的查询串/锚点、去末尾"/"、缺协议时自动补 https://）；
+     * 3. 同名或同 baseUrl 已存在时报明确异常，引导用户去编辑而不是重复添加。
+     */
     private void checkValid(BookSource s) {
         if (s.getName() == null || s.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("书源名称不能为空");
@@ -124,11 +130,58 @@ public class SourceService {
         if (s.getBaseUrl() == null || s.getBaseUrl().trim().isEmpty()) {
             throw new IllegalArgumentException("书源网址不能为空");
         }
-        if (!MOCK_BASE_URL.equals(s.getBaseUrl()) && !s.getBaseUrl().startsWith("http")) {
-            throw new IllegalArgumentException("书源网址必须以 http 开头");
-        }
+        s.setName(s.getName().trim());
+        s.setBaseUrl(normalizeBaseUrl(s.getBaseUrl().trim()));
         if (s.getEnabled() == null) s.setEnabled(true);
         if (s.getIsDefault() == null) s.setIsDefault(false);
+
+        // 重复检测：同名或同网址都视为"已添加"，避免用户误加出重复源
+        Long selfId = s.getId();
+        List<BookSource> all = mapper.selectList(null);
+        for (BookSource exist : all) {
+            if (exist.getId().equals(selfId)) {
+                continue; // 编辑自己时跳过自身
+            }
+            if (exist.getName().equals(s.getName())) {
+                throw new IllegalArgumentException("已存在同名书源（id=" + exist.getId() + "），请直接编辑它");
+            }
+            if (exist.getBaseUrl().equalsIgnoreCase(s.getBaseUrl())) {
+                throw new IllegalArgumentException("该网址已添加为书源「" + exist.getName() + "」");
+            }
+        }
+    }
+
+    /**
+     * 规范化书源网址。用户从浏览器粘贴时常带上查询串/锚点或漏掉协议：
+     * 去掉误粘的 "?xxx"/"#xxx"、去掉末尾多余 "/"；不以 http 开头但含 "."
+     * （看起来像域名）时自动补 "https://"，不再报错——降低添加门槛。
+     */
+    private String normalizeBaseUrl(String url) {
+        String u = url.trim();
+        if (MOCK_BASE_URL.equals(u)) {
+            return u; // 内置测试源不走这套规则
+        }
+        // 书源地址只应保留"站点根"，误粘的查询串/锚点会干扰 {{key}} 拼接
+        int q = u.indexOf('?');
+        if (q > 0) {
+            u = u.substring(0, q);
+        }
+        int h = u.indexOf('#');
+        if (h > 0) {
+            u = u.substring(0, h);
+        }
+        // 去末尾斜杠，但不能把 "https://" 的协议头也吃掉
+        while (u.endsWith("/") && !u.endsWith("://")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        if (!u.startsWith("http")) {
+            if (u.contains(".")) {
+                u = "https://" + u;
+            } else {
+                throw new IllegalArgumentException("书源网址格式不对，请检查（不带 http 也可以，如 www.xxx.com）");
+            }
+        }
+        return u;
     }
 
     private String now() {

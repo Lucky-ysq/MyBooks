@@ -19,6 +19,12 @@ public class BookController {
 
     private final BookService bookService;
 
+    /** 全站聚合搜索：并发搜所有启用的书源，按相关度排序、去重后返回 */
+    @GetMapping("/search/all")
+    public Result searchAll(@RequestParam String keyword) {
+        return Result.ok(bookService.searchAll(keyword));
+    }
+
     /** 搜索图书 */
     @GetMapping("/search")
     public Result search(@RequestParam Long sourceId, @RequestParam String keyword) {

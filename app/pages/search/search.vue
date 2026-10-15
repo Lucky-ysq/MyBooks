@@ -21,9 +21,16 @@
         <view class="info">
           <text class="name">{{ item.name }}</text>
           <text class="author">{{ item.author || '佚名' }}</text>
+          <!-- 全站搜索时标明结果来自哪个书源 -->
+          <text v-if="item.sourceName" class="from-source">来自「{{ item.sourceName }}」</text>
           <text class="intro">{{ item.intro || '暂无简介' }}</text>
         </view>
       </view>
+    </view>
+
+    <!-- 全站搜索时的失败书源汇总：不阻断浏览 -->
+    <view v-if="!loading && searched && failedSources.length > 0" class="failed-summary">
+      <text class="failed-text">{{ failedSources.length }} 个书源无响应</text>
     </view>
 
     <!-- 状态提示 -->
@@ -68,7 +75,7 @@ export default {
   data() {
     return {
       keyword: '',
-      sources: [],        // 启用的书源
+      sources: [],        // 书源下拉项：第 0 项是虚拟的「全部书源」
       sourceNames: [],    // picker 显示用
       currentSource: null,
       results: [],
@@ -76,7 +83,8 @@ export default {
       searched: false,
       error: '',
       detail: null,       // 详情弹层数据
-      adding: false
+      adding: false,
+      failedSources: []   // 全站搜索时无响应的书源汇总
     }
   },
   onLoad() {
@@ -86,15 +94,15 @@ export default {
     coverProxy(url) {
       return api.coverProxy(url)
     },
-    /** 加载启用书源，默认选 isDefault 的 */
+    /** 加载启用书源；第 0 项固定为「全部书源」且默认选中 */
     loadSources() {
       api.getSources().then(list => {
-        this.sources = (list || []).filter(s => s.enabled)
+        const enabled = (list || []).filter(s => s.enabled)
+        // 「全部书源」是虚拟项，走 /api/search/all 聚合搜索
+        this.sources = [{ id: 0, name: '全部书源', all: true }].concat(enabled)
         this.sourceNames = this.sources.map(s => s.name)
-        if (this.sources.length > 0) {
-          const def = this.sources.find(s => s.isDefault)
-          this.currentSource = def || this.sources[0]
-        } else {
+        this.currentSource = this.sources[0]
+        if (enabled.length === 0) {
           uni.showToast({ title: '还没有可用书源，请到「我的-书源管理」添加', icon: 'none', duration: 2500 })
         }
       }).catch(err => {
@@ -117,21 +125,37 @@ export default {
       this.loading = true
       this.error = ''
       this.searched = false
-      api.search(this.currentSource.id, key).then(list => {
-        this.results = list || []
-        this.searched = true
-        this.loading = false
-      }).catch(err => {
-        this.error = String(err)
-        this.results = []
-        this.loading = false
-      })
+      this.failedSources = []
+      if (this.currentSource.all) {
+        api.searchAll(key).then(res => {
+          this.results = (res && res.results) || []
+          this.failedSources = (res && res.failedSources) || []
+          this.searched = true
+          this.loading = false
+        }).catch(err => {
+          this.error = String(err)
+          this.results = []
+          this.loading = false
+        })
+      } else {
+        api.search(this.currentSource.id, key).then(list => {
+          this.results = list || []
+          this.searched = true
+          this.loading = false
+        }).catch(err => {
+          this.error = String(err)
+          this.results = []
+          this.loading = false
+        })
+      }
     },
     /** 点搜索结果：拉详情弹窗 */
     showDetail(item) {
       if (this.adding) return
       uni.showLoading({ title: '加载详情' })
-      api.getDetail(this.currentSource.id, item.bookUrl).then(d => {
+      // 全站搜索的结果自带 sourceId（来自聚合接口）；单源搜索用当前选中的书源
+      const sourceId = item.sourceId || this.currentSource.id
+      api.getDetail(sourceId, item.bookUrl).then(d => {
         uni.hideLoading()
         // 详情缺的字段用搜索结果补
         this.detail = {
@@ -141,7 +165,7 @@ export default {
           intro: d.intro || item.intro,
           latestChapter: d.latestChapter,
           bookUrl: item.bookUrl,
-          sourceId: this.currentSource.id
+          sourceId: sourceId
         }
       }).catch(err => {
         uni.hideLoading()
@@ -271,6 +295,20 @@ export default {
   margin-top: 6rpx;
   font-size: 24rpx;
   color: #909399;
+}
+.from-source {
+  display: inline-block;
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #c0c4cc;
+}
+.failed-summary {
+  margin-top: 12rpx;
+  text-align: center;
+}
+.failed-text {
+  font-size: 22rpx;
+  color: #c0c4cc;
 }
 .intro {
   display: block;

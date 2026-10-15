@@ -6,6 +6,8 @@ import com.yuxia.books.service.BookService;
 import com.yuxia.books.service.LegadoSourceImporter;
 import com.yuxia.books.service.SourceService;
 import lombok.RequiredArgsConstructor;
+import org.jsoup.HttpStatusException;
+import org.jsoup.UnsupportedMimeTypeException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,7 +18,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 书源管理接口
@@ -25,6 +34,9 @@ import java.util.List;
 @RequestMapping("/api/sources")
 @RequiredArgsConstructor
 public class SourceController {
+
+    /** 保存后自动测试用的固定关键字：「斗破」是小说站最常见的样本词 */
+    private static final String AUTO_TEST_KEYWORD = "斗破";
 
     private final SourceService sourceService;
     private final BookService bookService;
@@ -37,10 +49,14 @@ public class SourceController {
         return Result.ok(list);
     }
 
-    /** 新增书源（rules 不传时自动套笔趣阁模板） */
+    /**
+     * 新增书源（rules 不传时自动套笔趣阁模板）。
+     * 保存成功后自动用「斗破」试搜一次，附人话诊断（不影响保存结果）。
+     */
     @PostMapping
     public Result save(@RequestBody BookSource source) {
-        return Result.ok(sourceService.save(source));
+        BookSource saved = sourceService.save(source);
+        return Result.ok(withAutoTest(saved, saved.getId()));
     }
 
     /** 修改书源 */
@@ -48,7 +64,8 @@ public class SourceController {
     public Result update(@PathVariable Long id, @RequestBody BookSource source) {
         source.setId(id);
         sourceService.update(source);
-        return Result.ok(null);
+        BookSource updated = sourceService.getById(id);
+        return Result.ok(withAutoTest(updated, id));
     }
 
     /** 删除书源（至少保留一个） */
@@ -78,5 +95,90 @@ public class SourceController {
     @PostMapping("/import")
     public Result importSubscription(@RequestParam String url) {
         return Result.ok(legadoSourceImporter.importFromUrl(url));
+    }
+
+    // ---------- 保存后自动测试 ----------
+
+    /** 组装保存接口返回：{ source: 书源对象, test: { ok, resultCount, message } } */
+    private Map<String, Object> withAutoTest(BookSource saved, Long id) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("source", saved);
+        out.put("test", autoTest(id));
+        return out;
+    }
+
+    /**
+     * 保存后自动跑一次搜索，给出人话诊断。
+     * 新源套默认模板搜不到是正常的（网站不适配笔趣阁结构），不阻断保存，只提示。
+     */
+    private Map<String, Object> autoTest(Long id) {
+        Map<String, Object> test = new LinkedHashMap<String, Object>();
+        test.put("ok", Boolean.FALSE);
+        test.put("resultCount", Integer.valueOf(0));
+        test.put("message", "");
+        try {
+            List<Map<String, Object>> list = bookService.search(id, AUTO_TEST_KEYWORD);
+            int count = list == null ? 0 : list.size();
+            test.put("ok", Boolean.valueOf(count > 0));
+            test.put("resultCount", Integer.valueOf(count));
+            if (count > 0) {
+                test.put("message", "测试通过，搜到 " + count + " 条结果");
+            } else {
+                test.put("message", "能访问但没搜到结果：默认规则适配的是笔趣阁结构，"
+                        + "该站可能不适配，请用高级模式修改规则，或用「从订阅批量导入」");
+            }
+        } catch (Exception e) {
+            // 保存已成功，测试失败只反馈原因，不阻断
+            test.put("message", friendlyTestError(e));
+        }
+        return test;
+    }
+
+    /**
+     * 把测试异常翻译成人话。
+     * 判定依据是异常类型/HTTP 状态码，而不是 BookService.search() 重包后的文案
+     * （重包文案统一带"访问不了"字样，靠它匹配会把 405 误判成"网站连不上"）。
+     * BookService 重包异常时不保留 cause 链，所以先走类型链，再从文案中
+     * 结构化提取 "Status=xxx" 作为兜底。
+     */
+    private String friendlyTestError(Exception e) {
+        // 1) 沿 cause 链找具体异常类型
+        Throwable t = e;
+        while (t != null) {
+            if (t instanceof HttpStatusException) {
+                return rejectMessage(((HttpStatusException) t).getStatusCode());
+            }
+            if (t instanceof UnsupportedMimeTypeException) {
+                return "返回的不是网页（可能是接口型书源，需要高级规则）";
+            }
+            if (t instanceof SocketTimeoutException || t instanceof ConnectException
+                    || t instanceof UnknownHostException) {
+                return "网站连不上（可能失效或需要梯子）";
+            }
+            t = t.getCause();
+        }
+        // 2) cause 链被重包丢失时，从文案里结构化识别（Jsoup 的
+        //    HttpStatusException.getMessage() 形如 "HTTP error fetching URL. Status=405, URL=[...]"）
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        Matcher m = Pattern.compile("Status=(\\d{3})").matcher(msg);
+        if (m.find()) {
+            return rejectMessage(Integer.parseInt(m.group(1)));
+        }
+        String lower = msg.toLowerCase();
+        if (lower.contains("unhandled content type") || lower.contains("unsupported mime")) {
+            return "返回的不是网页（可能是接口型书源，需要高级规则）";
+        }
+        if (lower.contains("timed out") || lower.contains("unable to resolve")
+                || lower.contains("connection refused") || lower.contains("connection reset")
+                || lower.contains("connect")) {
+            return "网站连不上（可能失效或需要梯子）";
+        }
+        return "测试失败：" + msg;
+    }
+
+    /** 站点的 HTTP 响应是错误状态码：4xx/5xx 都算"拒绝"，带上具体码方便排查 */
+    private String rejectMessage(int statusCode) {
+        return "网站拒绝了请求（HTTP " + statusCode
+                + "，被反爬或路径不对），请用高级模式修改规则";
     }
 }
