@@ -54,7 +54,7 @@ function send(path, method, data) {
 
 // ---------- 具体 API ----------
 
-module.exports = {
+export default {
   server,
 
   /** 健康检查 */

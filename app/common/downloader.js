@@ -4,7 +4,7 @@
  * status: running 下载中 / paused 已暂停 / done 全部完成
  * 页面通过 uni.$on('downloadProgress', bookId) 刷新界面。
  */
-const api = require('./api.js')
+import api from './api.js'
 
 let timer = null
 let busy = false
@@ -156,7 +156,7 @@ function init() {
   if (hasRunning) ensureLoop()
 }
 
-module.exports = {
+export default {
   startTask,
   pauseTask,
   resumeTask,

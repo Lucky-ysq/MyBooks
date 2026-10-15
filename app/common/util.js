@@ -33,4 +33,4 @@ function shortTime(ts) {
   return (d.getMonth() + 1) + '-' + pad(d.getDate())
 }
 
-module.exports = { bookId, percentText, shortTime }
+export default { bookId, percentText, shortTime }

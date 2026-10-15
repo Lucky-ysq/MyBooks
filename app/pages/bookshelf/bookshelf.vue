@@ -33,8 +33,8 @@
 </template>
 
 <script>
-const api = require('@/common/api.js')
-const util = require('@/common/util.js')
+import api from '@/common/api.js'
+import util from '@/common/util.js'
 
 export default {
   data() {

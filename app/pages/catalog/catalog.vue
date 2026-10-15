@@ -46,8 +46,8 @@
 </template>
 
 <script>
-const api = require('@/common/api.js')
-const downloader = require('@/common/downloader.js')
+import api from '@/common/api.js'
+import downloader from '@/common/downloader.js'
 
 export default {
   data() {

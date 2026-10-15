@@ -147,7 +147,7 @@
 </template>
 
 <script>
-const api = require('@/common/api.js')
+import api from '@/common/api.js'
 
 /** 5 套阅读背景主题（夜间接 black） */
 const THEME_MAP = {

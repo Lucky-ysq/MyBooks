@@ -28,7 +28,12 @@
 
     <!-- 状态提示 -->
     <view v-if="loading" class="tip"><text>搜索中…</text></view>
-    <view v-if="!loading && searched && results.length === 0" class="tip"><text>没有找到相关图书，换个关键字或书源试试</text></view>
+    <view v-if="!loading && searched && results.length === 0" class="tip">
+      <!-- 用的是内置测试源时，说清为什么搜不到，避免误以为坏了 -->
+      <text v-if="isMockSource" class="error">当前用的是「本地测试源」，它只有 3 本演示书（搜「测试」能看到）。
+请点上方「书源」切换到真实书源再搜。</text>
+      <text v-else>没有找到相关图书，换个关键字或书源试试</text>
+    </view>
     <view v-if="error" class="tip"><text class="error">{{ error }}</text></view>
 
     <!-- 书籍详情弹层 -->
@@ -56,8 +61,8 @@
 </template>
 
 <script>
-const api = require('@/common/api.js')
-const util = require('@/common/util.js')
+import api from '@/common/api.js'
+import util from '@/common/util.js'
 
 export default {
   data() {
@@ -197,6 +202,11 @@ export default {
       if (!this.detail) return false
       const shelf = uni.getStorageSync('bookshelf') || []
       return shelf.some(b => b.bookUrl === this.detail.bookUrl)
+    },
+    /** 当前选的是不是内置测试源（mock://local）——用于给出「搜不到」的原因提示 */
+    isMockSource() {
+      const s = this.currentSource
+      return !!(s && String(s.baseUrl || '').startsWith('mock'))
     }
   }
 }

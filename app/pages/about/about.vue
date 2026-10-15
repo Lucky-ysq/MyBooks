@@ -32,7 +32,7 @@
 </template>
 
 <script>
-const api = require('@/common/api.js')
+import api from '@/common/api.js'
 
 export default {
   data() {

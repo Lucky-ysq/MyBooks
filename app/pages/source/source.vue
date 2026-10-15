@@ -35,7 +35,7 @@
           <text class="e-adv-arrow">{{ advanced ? '收起 ▴' : '展开 ▾' }}</text>
         </view>
         <view v-if="advanced">
-          <text class="e-hint">规则为 JSON 格式，选择器写法：".xxx" 取文本、".xxx@href" 取属性、{{ '{{key}}' }} 为搜索关键字占位。不确定就保持默认（笔趣阁通用规则）。</text>
+          <text class="e-hint">规则为 JSON 格式，选择器写法：".xxx" 取文本、".xxx@href" 取属性、{{ keyPlaceholder }} 为搜索关键字占位。不确定就保持默认（笔趣阁通用规则）。</text>
           <textarea class="e-textarea" v-model="form.rules" :maxlength="-1" auto-height />
         </view>
 
@@ -52,7 +52,7 @@
 </template>
 
 <script>
-const api = require('@/common/api.js')
+import api from '@/common/api.js'
 
 export default {
   data() {
@@ -62,6 +62,7 @@ export default {
       advanced: false,
       testing: false,
       testResult: '',
+      keyPlaceholder: '{{key}}',
       form: { id: null, name: '', baseUrl: '', rules: '' }
     }
   },

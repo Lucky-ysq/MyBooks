@@ -50,7 +50,7 @@
 </template>
 
 <script>
-const downloader = require('@/common/downloader.js')
+import downloader from '@/common/downloader.js'
 
 export default {
   data() {
