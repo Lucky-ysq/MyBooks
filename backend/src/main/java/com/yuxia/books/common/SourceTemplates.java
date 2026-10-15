@@ -46,4 +46,44 @@ public class SourceTemplates {
             "    \"remove\": \"script, style, .ad, .contentadv\"\n" +
             "  }\n" +
             "}";
+
+    /**
+     * bqg70.com 实测适配规则（开发期真实联调用）：
+     * - 搜索 POST /search.html，参数 s
+     * - 详情字段走 og: meta，最干净
+     * - 完整目录在 /book/{id}/index_N.html 分页（每页100章）
+     * - 正文在 #content 的 script 里用 base64 加密，且章内分页 _N.html
+     */
+    public static final String BQG70_RULES = "{\n" +
+            "  \"charset\": \"utf-8\",\n" +
+            "  \"search\": {\n" +
+            "    \"url\": \"/search.html\",\n" +
+            "    \"method\": \"POST\",\n" +
+            "    \"body\": \"s={{key}}\",\n" +
+            "    \"list\": \".item\",\n" +
+            "    \"name\": \"dt a\",\n" +
+            "    \"bookUrl\": \"dt a@href\",\n" +
+            "    \"author\": \".btm@own\",\n" +
+            "    \"intro\": \"dd\",\n" +
+            "    \"cover\": \".image img@data-original\"\n" +
+            "  },\n" +
+            "  \"detail\": {\n" +
+            "    \"name\": \"meta[property=og:novel:book_name]@content\",\n" +
+            "    \"author\": \"meta[property=og:novel:author]@content\",\n" +
+            "    \"cover\": \"meta[property=og:image]@content\",\n" +
+            "    \"intro\": \"#intro\",\n" +
+            "    \"latestChapter\": \"meta[property=og:novel:latest_chapter_name]@content\",\n" +
+            "    \"updateTime\": \"meta[property=og:novel:update_time]@content\"\n" +
+            "  },\n" +
+            "  \"toc\": {\n" +
+            "    \"url\": \"index_1.html\",\n" +
+            "    \"list\": \"#list a[rel=chapter]\",\n" +
+            "    \"nextPage\": \"#list a.index-container-btn\"\n" +
+            "  },\n" +
+            "  \"content\": {\n" +
+            "    \"selector\": \"#content\",\n" +
+            "    \"scriptDecode\": true,\n" +
+            "    \"nextPage\": \"a.next\"\n" +
+            "  }\n" +
+            "}";
 }

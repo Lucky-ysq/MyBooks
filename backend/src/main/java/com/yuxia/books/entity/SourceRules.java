@@ -50,11 +50,16 @@ public class SourceRules {
         private String list;       // 每个章节链接的选择器
         private String title;      // 章节名（默认取元素自身文本）
         private String chapterUrl; // 章节链接（默认取元素自身 href）
+        private String url;        // 目录页地址（可选）。有的站完整目录不在详情页，
+                                   // 如 /book/1/index_1.html，填相对地址会基于 bookUrl 补全
+        private String nextPage;   // 目录翻页链接选择器（可选，目录分页时用）
     }
 
     @Data
     public static class ContentRule {
-        private String selector; // 正文容器选择器
-        private String remove;   // 要剔除的元素（广告等），逗号分隔
+        private String selector;     // 正文容器选择器
+        private String remove;       // 要剔除的元素（广告等），逗号分隔
+        private Boolean scriptDecode; // 正文是 script 里的 base64 时填 true（自动解码拼接）
+        private String nextPage;     // 章内分页「下一页」选择器（可选；指向别的章节会自动停止）
     }
 }

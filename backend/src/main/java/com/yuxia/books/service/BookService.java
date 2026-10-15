@@ -15,9 +15,12 @@ import org.springframework.stereotype.Service;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 图书业务：搜索 / 详情 / 目录 / 正文。
@@ -117,23 +120,47 @@ public class BookService {
         if (r == null || r.getList() == null || r.getList().trim().isEmpty()) {
             throw new IllegalArgumentException("该书源没有配置目录规则，请到高级模式补充");
         }
-        Document doc = fetchPage(s, bookUrl, "目录页");
+
+        // 目录可能在单独页面（规则给了 url 就先跳过去），且可能分页
+        String firstPage = bookUrl;
+        if (r.getUrl() != null && !r.getUrl().trim().isEmpty()) {
+            firstPage = resolveUrl(bookUrl, r.getUrl().trim());
+        }
 
         // 目录规则缺省：章节名取自身文本、链接取自身 href
         String titleRule = (r.getTitle() == null || r.getTitle().isEmpty()) ? "text" : r.getTitle();
         String urlRule = (r.getChapterUrl() == null || r.getChapterUrl().isEmpty()) ? "href" : r.getChapterUrl();
 
         List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
-        for (Element a : doc.select(r.getList())) {
-            String title = RuleParser.text(a, titleRule);
-            String chapterUrl = RuleParser.text(a, urlRule);
-            if (title.isEmpty() || chapterUrl.isEmpty()) {
-                continue;
+        Set<String> visited = new HashSet<String>();
+        String current = firstPage;
+        for (int page = 0; page < 100; page++) {
+            if (!visited.add(current)) {
+                break; // 防止死循环
             }
-            Map<String, Object> m = new LinkedHashMap<String, Object>();
-            m.put("title", title);
-            m.put("chapterUrl", chapterUrl);
-            list.add(m);
+            Document doc = fetchPage(s, current, "目录页");
+            for (Element a : doc.select(r.getList())) {
+                String title = RuleParser.text(a, titleRule);
+                String chapterUrl = RuleParser.text(a, urlRule);
+                if (title.isEmpty() || chapterUrl.isEmpty()) {
+                    continue;
+                }
+                // 章节链接补全成完整 URL：App 端要原样保存并回传，相对地址会导致后续抓不到
+                chapterUrl = resolveUrl(current, chapterUrl);
+                Map<String, Object> m = new LinkedHashMap<String, Object>();
+                m.put("title", title);
+                m.put("chapterUrl", chapterUrl);
+                list.add(m);
+            }
+            // 目录翻页
+            if (r.getNextPage() == null || r.getNextPage().trim().isEmpty()) {
+                break;
+            }
+            String next = firstValidHref(doc, r.getNextPage());
+            if (next == null) {
+                break;
+            }
+            current = next;
         }
         if (list.isEmpty()) {
             throw new IllegalArgumentException("目录规则没有匹配到任何章节，请检查选择器");
@@ -154,33 +181,55 @@ public class BookService {
         if (r == null || r.getSelector() == null || r.getSelector().trim().isEmpty()) {
             throw new IllegalArgumentException("该书源没有配置正文规则，请到高级模式补充");
         }
-        Document doc = fetchPage(s, chapterUrl, "正文页");
 
-        Element box = doc.selectFirst(r.getSelector());
-        if (box == null) {
-            throw new IllegalArgumentException("正文选择器没匹配到内容：" + r.getSelector());
-        }
-        if (r.getRemove() != null && !r.getRemove().trim().isEmpty()) {
-            for (String sel : r.getRemove().split(",")) {
-                if (!sel.trim().isEmpty()) {
-                    box.select(sel.trim()).remove();
-                }
+        boolean decode = Boolean.TRUE.equals(r.getScriptDecode());
+        StringBuilder htmlBuf = new StringBuilder();
+        String title = null;
+        Set<String> visited = new HashSet<String>();
+        String current = chapterUrl;
+        for (int page = 0; page < 30; page++) {
+            if (!visited.add(current)) {
+                break;
             }
+            Document doc = fetchPage(s, current, "正文页");
+            if (title == null) {
+                title = pickTitle(doc);
+            }
+            Element box = doc.selectFirst(r.getSelector());
+            if (box == null && page == 0) {
+                throw new IllegalArgumentException("正文选择器没匹配到内容：" + r.getSelector());
+            }
+            if (box != null) {
+                if (r.getRemove() != null && !r.getRemove().trim().isEmpty()) {
+                    for (String sel : r.getRemove().split(",")) {
+                        if (!sel.trim().isEmpty()) {
+                            box.select(sel.trim()).remove();
+                        }
+                    }
+                }
+                if (decode) {
+                    htmlBuf.append(decodeScriptHtml(box));
+                } else {
+                    htmlBuf.append(box.html());
+                }
+                htmlBuf.append('\n');
+            }
+            // 章内翻页：没有规则就结束
+            if (r.getNextPage() == null || r.getNextPage().trim().isEmpty()) {
+                break;
+            }
+            String next = firstValidHref(doc, r.getNextPage());
+            // 安全停止：链接无效 / 指向别的章节（不再带本章节文件名）就停，防止把整本书拼进来
+            if (next == null || !isSameChapterPage(chapterUrl, next)) {
+                break;
+            }
+            current = next;
         }
 
-        List<String> paragraphs = splitParagraphs(box);
-
-        // 章节标题：优先 h1，其次网页标题
-        String title = "";
-        Element h1 = doc.selectFirst("h1");
-        if (h1 != null && !h1.text().trim().isEmpty()) {
-            title = h1.text().trim();
-        } else {
-            title = doc.title();
-        }
+        List<String> paragraphs = splitParagraphsHtml(htmlBuf.toString());
 
         Map<String, Object> m = new LinkedHashMap<String, Object>();
-        m.put("title", title);
+        m.put("title", title == null ? "" : title);
         m.put("paragraphs", paragraphs);
         // 上一章/下一章 V1 不抓取，App 端按目录索引翻章
         m.put("prevUrl", null);
@@ -239,7 +288,7 @@ public class BookService {
         }
     }
 
-    /** 相对地址补全成完整 URL */
+    /** 相对地址补全成完整 URL（基于站点根） */
     private String absolute(String baseUrl, String url) {
         if (url.startsWith("http")) {
             return url;
@@ -251,14 +300,99 @@ public class BookService {
         return base + "/" + url;
     }
 
-    /** 正文容器的 html 转段落列表：<br>、</p> 都视为换行 */
-    private List<String> splitParagraphs(Element box) {
-        String html = box.html()
+    /** 相对地址基于「某个页面」补全：/x 开头拼域名，否则拼到该页面的目录下 */
+    private String resolveUrl(String pageUrl, String link) {
+        if (link.startsWith("http")) {
+            return link;
+        }
+        if (link.startsWith("/")) {
+            return absolute(originOf(pageUrl), link);
+        }
+        // 去掉页面文件名，保留目录
+        int slash = pageUrl.lastIndexOf('/');
+        String dir = slash >= 0 ? pageUrl.substring(0, slash + 1) : pageUrl;
+        return dir + link;
+    }
+
+    private String originOf(String url) {
+        int idx = url.indexOf("://");
+        if (idx < 0) {
+            return url;
+        }
+        int slash = url.indexOf('/', idx + 3);
+        return slash < 0 ? url : url.substring(0, slash);
+    }
+
+    /**
+     * 取「下一页」链接：选择器匹配的元素里，第一个 href 是正常网址的
+     * （跳过 javascript:void(0) 这类禁用按钮）
+     */
+    private String firstValidHref(Document doc, String selector) {
+        for (String one : selector.split(",")) {
+            for (Element a : doc.select(one.trim())) {
+                String href = a.attr("abs:href");
+                if (href.startsWith("http")) {
+                    return href;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 章节标题：优先 h1，其次网页标题 */
+    private String pickTitle(Document doc) {
+        Element h1 = doc.selectFirst("h1");
+        if (h1 != null && !h1.text().trim().isEmpty()) {
+            return h1.text().trim();
+        }
+        return doc.title();
+    }
+
+    /**
+     * 判断 next 是否还是本章的分页。
+     * 本章 /book/1/5027049.html 的分页形如 5027049_2.html；
+     * 若 next 不匹配「章文件名(_数字)?.html」说明已经指到别的章节，停止拼接。
+     */
+    private boolean isSameChapterPage(String chapterUrl, String next) {
+        String name = chapterUrl.substring(chapterUrl.lastIndexOf('/') + 1); // 5027049.html
+        String stem = name.replaceAll("\\.html?$", "");                      // 5027049
+        if (stem.isEmpty()) {
+            return false;
+        }
+        String nextName = next.substring(next.lastIndexOf('/') + 1);
+        return nextName.matches(Pattern.quote(stem) + "(_\\d+)?\\.html?$");
+    }
+
+    /** 把容器里 script 中的 base64 片段解码并拼接（部分站正文用 JS+base64 防抓） */
+    private String decodeScriptHtml(Element box) {
+        StringBuilder buf = new StringBuilder();
+        Pattern p = Pattern.compile("['\\\"]([A-Za-z0-9+/=]{16,})['\\\"]");
+        for (Element script : box.select("script")) {
+            String data = script.data();
+            if (data == null || data.isEmpty()) {
+                continue;
+            }
+            java.util.regex.Matcher m = p.matcher(data);
+            while (m.find()) {
+                try {
+                    byte[] bytes = java.util.Base64.getDecoder().decode(m.group(1));
+                    buf.append(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+                    buf.append('\n');
+                } catch (IllegalArgumentException ignore) {
+                    // 不是合法 base64 就跳过这段
+                }
+            }
+        }
+        return buf.toString();
+    }
+
+    /** html 字符串转段落列表：<br>、</p> 都视为换行 */
+    private List<String> splitParagraphsHtml(String html) {
+        String text = Entities.unescape(html
                 .replaceAll("(?i)<br\\s*/?>", "\n")
                 .replaceAll("(?i)<p[^>]*>", "\n")
                 .replaceAll("(?i)</p>", "\n")
-                .replaceAll("(?i)<[^>]+>", "");
-        String text = Entities.unescape(html);
+                .replaceAll("(?i)<[^>]+>", ""));
 
         List<String> paras = new ArrayList<String>();
         for (String line : text.split("\n+")) {
@@ -266,9 +400,6 @@ public class BookService {
             if (!t.isEmpty()) {
                 paras.add(t);
             }
-        }
-        if (paras.isEmpty() && !box.text().trim().isEmpty()) {
-            paras.add(box.text().trim());
         }
         return paras;
     }

@@ -39,14 +39,14 @@ public class SourceService {
         mock.setRules(SourceTemplates.MOCK_RULES);
         save(mock);
 
-        BookSource biquge = new BookSource();
-        biquge.setName("笔趣阁模板示例");
-        biquge.setBaseUrl("https://www.xbiquge.so");
-        biquge.setEnabled(false);
-        biquge.setIsDefault(false);
-        biquge.setRemark("笔趣阁通用规则模板，可复制改成其它镜像站");
-        biquge.setRules(SourceTemplates.BIQUGE_RULES);
-        save(biquge);
+        BookSource bqg = new BookSource();
+        bqg.setName("笔趣阁·真实源(测试)");
+        bqg.setBaseUrl("https://www.bqg70.com");
+        bqg.setEnabled(true);
+        bqg.setIsDefault(false);
+        bqg.setRemark("开发期实测联调用的真实站点；站点失效可复制改其它镜像站");
+        bqg.setRules(SourceTemplates.BQG70_RULES);
+        save(bqg);
 
         log.info("已初始化内置书源 2 条");
     }

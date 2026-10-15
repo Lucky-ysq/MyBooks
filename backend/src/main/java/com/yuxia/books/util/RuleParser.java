@@ -50,6 +50,9 @@ public class RuleParser {
 
         // "@href" 这种只写属性：作用于元素自身
         if (selector.isEmpty()) {
+            if ("own".equals(attr)) {
+                return clean(root.ownText()); // 只取元素自身文本，不含子标签文本
+            }
             return attr == null ? clean(root.text()) : absolute(root, attr);
         }
 
@@ -57,16 +60,26 @@ public class RuleParser {
         if (el == null) {
             return "";
         }
+        if ("own".equals(attr)) {
+            return clean(el.ownText());
+        }
         return attr == null ? clean(el.text()) : absolute(el, attr);
     }
 
-    /** 相对地址转完整 URL；不是地址属性就原样返回 */
+    /**
+     * 相对地址转完整 URL。
+     * 注意：只有值看起来像地址（http/./…开头）才补全，
+     * 否则像 <meta content="梦入斗破"> 这种文本值会被 absUrl 拼成 "域名/梦入斗破"。
+     */
     private static String absolute(Element el, String attr) {
-        String abs = el.absUrl(attr);
-        if (!abs.isEmpty()) {
-            return abs;
+        String raw = el.attr(attr);
+        boolean looksLikeUrl = raw.startsWith("http") || raw.startsWith("/")
+                || raw.startsWith("./") || raw.startsWith("../");
+        if (!looksLikeUrl) {
+            return clean(raw);
         }
-        return clean(el.attr(attr));
+        String abs = el.absUrl(attr);
+        return abs.isEmpty() ? clean(raw) : abs;
     }
 
     private static String clean(String s) {
