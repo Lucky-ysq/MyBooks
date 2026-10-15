@@ -48,7 +48,16 @@ public class SourceService {
         bqg.setRules(SourceTemplates.BQG70_RULES);
         save(bqg);
 
-        log.info("已初始化内置书源 2 条");
+        BookSource yueyou = new BookSource();
+        yueyou.setName("阅友小说");
+        yueyou.setBaseUrl("http://m.suixkan.com");
+        yueyou.setEnabled(true);
+        yueyou.setIsDefault(false);
+        yueyou.setRemark("移动站，国内可直连；规则取自 xiu2/yuedu 书源订阅并重写");
+        yueyou.setRules(SourceTemplates.YUEYOU_RULES);
+        save(yueyou);
+
+        log.info("已初始化内置书源 3 条");
     }
 
     public List<BookSource> list() {

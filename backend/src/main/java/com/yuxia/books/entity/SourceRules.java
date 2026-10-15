@@ -52,6 +52,9 @@ public class SourceRules {
         private String chapterUrl; // 章节链接（默认取元素自身 href）
         private String url;        // 目录页地址（可选）。有的站完整目录不在详情页，
                                    // 如 /book/1/index_1.html，填相对地址会基于 bookUrl 补全
+        private String urlRule;    // 目录页链接的选择器（可选，优先于 url）。
+                                   // 用于「详情页只给前几章预览、完整目录在另一个页面」的站，
+                                   // 如阅友小说详情页的 .sumchapter a -> /c/{bookId}.html
         private String nextPage;   // 目录翻页链接选择器（可选，目录分页时用）
     }
 

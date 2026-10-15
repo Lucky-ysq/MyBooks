@@ -86,4 +86,44 @@ public class SourceTemplates {
             "    \"nextPage\": \"a.next\"\n" +
             "  }\n" +
             "}";
+
+    /**
+     * 阅友小说（m.suixkan.com）实测适配规则。
+     * 来源：xiu2/yuedu 的 Legado 书源订阅里同名书源，按本项目规则格式重写（该订阅里唯一
+     * 纯 CSS、无 JS、无 XPath、国内可直连的源）。
+     *
+     * 三个特殊点，也是本项目规则引擎为此新增的能力：
+     * 1) 搜索结果的书链接藏在 onclick 里（没有 a[href]）-> 用 "@onclick:url" 抠出来
+     * 2) 详情页只给前 3 章预览，完整目录在 /c/{id}.html -> 用 toc.urlRule 从「查看目录」链接跳过去
+     * 3) 章内分页（1/5~5/5）全塞在同一个 HTML 的多个 .con 里 -> 靠后端「多容器拼接」还原完整章节
+     */
+    public static final String YUEYOU_RULES = "{\n" +
+            "  \"charset\": \"utf-8\",\n" +
+            "  \"search\": {\n" +
+            "    \"url\": \"/s/1.html?keyword={{key}}\",\n" +
+            "    \"method\": \"GET\",\n" +
+            "    \"list\": \".v-list-item\",\n" +
+            "    \"name\": \".v-title\",\n" +
+            "    \"bookUrl\": \"@onclick:url\",\n" +
+            "    \"author\": \".v-author\",\n" +
+            "    \"cover\": \"img@src\",\n" +
+            "    \"intro\": \".v-intro\"\n" +
+            "  },\n" +
+            "  \"detail\": {\n" +
+            "    \"name\": \".face-info-title\",\n" +
+            "    \"author\": \".face-info .v-words span:eq(0)##作者：\",\n" +
+            "    \"cover\": \".face-cover img@src\",\n" +
+            "    \"intro\": \"#intro\"\n" +
+            "  },\n" +
+            "  \"toc\": {\n" +
+            "    \"urlRule\": \".sumchapter a\",\n" +
+            "    \"list\": \".catalog_ls li a\",\n" +
+            "    \"title\": \"@own\",\n" +
+            "    \"chapterUrl\": \"href\"\n" +
+            "  },\n" +
+            "  \"content\": {\n" +
+            "    \"selector\": \".con\",\n" +
+            "    \"remove\": \"script, style\"\n" +
+            "  }\n" +
+            "}";
 }

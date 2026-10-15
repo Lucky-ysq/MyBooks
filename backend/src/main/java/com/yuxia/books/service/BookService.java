@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Entities;
+import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
 import java.io.UnsupportedEncodingException;
@@ -121,9 +122,16 @@ public class BookService {
             throw new IllegalArgumentException("该书源没有配置目录规则，请到高级模式补充");
         }
 
-        // 目录可能在单独页面（规则给了 url 就先跳过去），且可能分页
+        // 完整目录常常不在详情页（详情页只给前几章预览），两种跳转方式：
+        //   1) urlRule：用选择器从详情页里找「查看目录」链接 —— 适配目录页路径不固定的站
+        //   2) url    ：写死相对路径，基于 bookUrl 补全（如 bqg70 的 index_1.html）
         String firstPage = bookUrl;
-        if (r.getUrl() != null && !r.getUrl().trim().isEmpty()) {
+        if (r.getUrlRule() != null && !r.getUrlRule().trim().isEmpty()) {
+            String href = firstValidHref(fetchPage(s, bookUrl, "详情页"), r.getUrlRule());
+            if (href != null) {
+                firstPage = href;
+            }
+        } else if (r.getUrl() != null && !r.getUrl().trim().isEmpty()) {
             firstPage = resolveUrl(bookUrl, r.getUrl().trim());
         }
 
@@ -195,11 +203,13 @@ public class BookService {
             if (title == null) {
                 title = pickTitle(doc);
             }
-            Element box = doc.selectFirst(r.getSelector());
-            if (box == null && page == 0) {
+            // 一页里可能有多个正文容器：有的站把章内分页（1/5~5/5）全塞在同一个 HTML 里，
+            // 所以取全部匹配依次拼接，而不是只取第一个（只取第一个会丢 4/5 的内容）
+            Elements boxes = doc.select(r.getSelector());
+            if (boxes.isEmpty() && page == 0) {
                 throw new IllegalArgumentException("正文选择器没匹配到内容：" + r.getSelector());
             }
-            if (box != null) {
+            for (Element box : boxes) {
                 if (r.getRemove() != null && !r.getRemove().trim().isEmpty()) {
                     for (String sel : r.getRemove().split(",")) {
                         if (!sel.trim().isEmpty()) {
