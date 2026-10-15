@@ -76,6 +76,76 @@ public class LegadoSourceImporter {
         return importFromJson(body);
     }
 
+    /**
+     * 判断一段响应内容是不是「书源订阅文件」。
+     * 判定依据是**内容结构**而不是地址后缀：顶层 JSON 数组、且元素里带
+     * bookSourceUrl / bookSourceName 字段。这样不管用户粘的是
+     * `.../shuyuan`、`.../xxx.json` 还是别的路径，都能认出来。
+     */
+    public boolean looksLikeSubscription(String body) {
+        if (body == null) {
+            return false;
+        }
+        String b = body.trim();
+        if (b.isEmpty() || b.charAt(0) != '[') {
+            return false;
+        }
+        try {
+            JsonNode root = json.readTree(b);
+            if (!root.isArray() || root.size() == 0) {
+                return false;
+            }
+            for (JsonNode n : root) {
+                if (n.has("bookSourceUrl") || n.has("bookSourceName")) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            // 不是合法 JSON，或不是数组：当普通网页处理
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * 取一个地址的原始响应体（不做 HTML 解析），用于「添加书源」时判断类型。
+     * 失败返回 null（由调用方决定后续处理）。
+     * 超时给到 30s：书源订阅文件可能有几百 KB，探测超时太短会把订阅误判成网站源。
+     */
+    public String fetchRawBody(String url) {
+        if (url == null || !url.startsWith("http")) {
+            return null;
+        }
+        try {
+            return Jsoup.connect(url)
+                    .userAgent(JsoupFetcher.UA)
+                    .timeout(30000)
+                    .ignoreContentType(true)
+                    .execute()
+                    .body();
+        } catch (Exception e) {
+            log.info("探测书源类型时取不到内容 {}：{}", url, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 地址形态上是否像书源订阅：以 shuyuan / .json / .txt 结尾，或路径里带 /raw/、/sources/。
+     * 仅用于「取不到内容时」给出更准确的提示，真正的判定始终以内容为准。
+     */
+    public boolean looksLikeSubscriptionUrl(String url) {
+        if (url == null) {
+            return false;
+        }
+        String u = url.trim().toLowerCase();
+        int q = u.indexOf('?');
+        if (q > 0) {
+            u = u.substring(0, q);
+        }
+        return u.endsWith("shuyuan") || u.endsWith(".json") || u.endsWith(".txt")
+                || u.contains("/raw/") || u.contains("/sources/");
+    }
+
     /** 从 JSON 文本导入（订阅内容直接粘贴时用） */
     public Map<String, Object> importFromJson(String body) {
         if (body == null || body.trim().isEmpty()) {

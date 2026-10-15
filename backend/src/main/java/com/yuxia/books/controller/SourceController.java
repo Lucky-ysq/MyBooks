@@ -50,13 +50,53 @@ public class SourceController {
     }
 
     /**
-     * 新增书源（rules 不传时自动套笔趣阁模板）。
-     * 保存成功后自动用「斗破」试搜一次，附人话诊断（不影响保存结果）。
+     * 新增书源：**后台自动判断书源类型**，用户不用先选对入口。
+     * - 网址返回的是书源订阅文件（JSON 数组含 bookSourceUrl）→ 走订阅解析，批量导入
+     * - 其余（小说网站，如 .com 站点）→ 走规则解析，套模板保存并自动试搜
+     *
+     * @return type=subscription 时返回导入统计；type=website 时返回 {source, test}
      */
     @PostMapping
     public Result save(@RequestBody BookSource source) {
+        String rawUrl = source.getBaseUrl() == null ? "" : source.getBaseUrl().trim();
+
+        // 先取一次内容做类型识别（30s 超时，订阅文件可能几百 KB）
+        String body = legadoSourceImporter.fetchRawBody(rawUrl);
+        if (legadoSourceImporter.looksLikeSubscription(body)) {
+            Map<String, Object> stats = legadoSourceImporter.importFromJson(body);
+            stats.put("type", "subscription");
+            return Result.ok(stats);
+        }
+        // 地址形态像订阅但没取到内容：明确报错，别存成一个用不了的「网站源」
+        if (body == null && legadoSourceImporter.looksLikeSubscriptionUrl(rawUrl)) {
+            throw new IllegalArgumentException("这个地址看起来是书源订阅，但下载失败，请检查网络后重试");
+        }
+
+        // 网站源：名称留空时用域名兜底，省得用户被「名称必填」卡住
+        if (source.getName() == null || source.getName().trim().isEmpty()) {
+            source.setName(deriveName(source.getBaseUrl()));
+        }
         BookSource saved = sourceService.save(source);
-        return Result.ok(withAutoTest(saved, saved.getId()));
+        Map<String, Object> out = withAutoTest(saved, saved.getId());
+        out.put("type", "website");
+        return Result.ok(out);
+    }
+
+    /** 从网址里取个可读的书源名：www.example.com/book → example.com */
+    private String deriveName(String baseUrl) {
+        String u = baseUrl == null ? "" : baseUrl.trim();
+        int idx = u.indexOf("://");
+        if (idx >= 0) {
+            u = u.substring(idx + 3);
+        }
+        int slash = u.indexOf('/');
+        if (slash >= 0) {
+            u = u.substring(0, slash);
+        }
+        if (u.startsWith("www.")) {
+            u = u.substring(4);
+        }
+        return u.isEmpty() ? "未命名书源" : u;
     }
 
     /** 修改书源 */

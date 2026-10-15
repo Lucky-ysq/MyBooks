@@ -25,11 +25,12 @@
       <scroll-view scroll-y class="editor" @click.stop>
         <text class="e-title">{{ form.id ? '编辑书源' : '添加书源' }}</text>
 
-        <text class="e-label">名称 *</text>
+        <text class="e-label">名称（可留空，自动取域名）</text>
         <input class="e-input" v-model="form.name" placeholder="如：我的书源" />
 
         <text class="e-label">网址 *</text>
         <input class="e-input" v-model="form.baseUrl" placeholder="https://www.xxx.com（不带 http 也可以）" />
+        <text class="e-hint">小说网站和书源订阅地址都能填：后台会自动识别——网址返回书源订阅文件（如 …/shuyuan）就批量导入，否则按网站源解析。</text>
 
         <!-- 高级模式开关 -->
         <view class="e-adv-row" @click="advanced = !advanced">
@@ -156,17 +157,29 @@ export default {
     /** 保存：简单模式 rules 留空即可（后端自动套模板） */
     saveSource() {
       const f = this.form
-      if (!f.name.trim() || !f.baseUrl.trim()) {
-        uni.showToast({ title: '名称和网址必填', icon: 'none' })
+      // 名称可留空（后台用域名兜底）；订阅地址只需要网址
+      if (!f.baseUrl.trim()) {
+        uni.showToast({ title: '请填书源网址', icon: 'none' })
         return
       }
-      const body = { name: f.name.trim(), baseUrl: f.baseUrl.trim(), rules: f.rules || '' }
+      const body = { name: (f.name || '').trim(), baseUrl: f.baseUrl.trim(), rules: f.rules || '' }
       const p = f.id
         ? api.updateSource(f.id, Object.assign({ enabled: true }, body))
         : api.saveSource(Object.assign({ enabled: true }, body))
       p.then(res => {
+        // 后台自动判别类型：订阅文件 → 批量导入结果；网站 → 单源 + 试搜结果
+        if (res && res.type === 'subscription') {
+          this.editing = false
+          this.load()
+          uni.showModal({
+            title: '识别为书源订阅',
+            content: '共 ' + res.total + ' 条：新增 ' + res.imported + '、更新 ' + res.updated
+              + '、跳过 ' + res.skipped,
+            showCancel: false
+          })
+          return
+        }
         this.load()
-        // 保存接口现在会附带自动测试结果：{ source, test: { ok, resultCount, message } }
         const t = res && res.test
         if (t && t.ok) {
           this.editing = false
