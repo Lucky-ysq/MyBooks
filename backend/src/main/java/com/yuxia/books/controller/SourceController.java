@@ -3,6 +3,7 @@ package com.yuxia.books.controller;
 import com.yuxia.books.common.Result;
 import com.yuxia.books.entity.BookSource;
 import com.yuxia.books.service.BookService;
+import com.yuxia.books.service.LegadoSourceImporter;
 import com.yuxia.books.service.SourceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,6 +28,7 @@ public class SourceController {
 
     private final SourceService sourceService;
     private final BookService bookService;
+    private final LegadoSourceImporter legadoSourceImporter;
 
     /** 书源列表 */
     @GetMapping
@@ -67,5 +69,14 @@ public class SourceController {
     @GetMapping("/{id}/test")
     public Result test(@PathVariable Long id, @RequestParam(defaultValue = "斗破") String keyword) {
         return Result.ok(bookService.search(id, keyword));
+    }
+
+    /**
+     * 导入 Legado（「阅读」App）书源订阅。
+     * 传订阅地址（返回书源 JSON 数组），按 baseUrl 去重后批量入库。
+     */
+    @PostMapping("/import")
+    public Result importSubscription(@RequestParam String url) {
+        return Result.ok(legadoSourceImporter.importFromUrl(url));
     }
 }

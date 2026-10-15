@@ -92,6 +92,11 @@ export default {
     return get('/api/sources/' + id + '/test', { keyword: keyword || '斗破' })
   },
 
+  /** 导入 Legado（「阅读」App）书源订阅，url 放 query 里避免编码问题 */
+  importSources(url) {
+    return send('/api/sources/import?url=' + encodeURIComponent(url), 'POST')
+  },
+
   /** 搜索图书 */
   search(sourceId, keyword) {
     return get('/api/search', { sourceId: sourceId, keyword: keyword })

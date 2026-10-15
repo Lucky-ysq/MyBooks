@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuxia.books.entity.BookSource;
 import com.yuxia.books.entity.SourceRules;
 import com.yuxia.books.util.JsoupFetcher;
+import com.yuxia.books.util.JsRuleEngine;
+import com.yuxia.books.util.LegadoRuleParser;
+import com.yuxia.books.util.LegadoRuleParser.JsContext;
 import com.yuxia.books.util.RuleParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -53,12 +57,40 @@ public class BookService {
         }
 
         String key = encodeKeyword(keyword.trim(), rules.getCharset());
-        String url = absolute(s.getBaseUrl(), r.getUrl().replace("{{key}}", key));
-        String body = r.getBody() == null ? null : r.getBody().replace("{{key}}", key);
+        String rawUrl = r.getUrl().trim();
+        String method = r.getMethod();
+        String body = r.getBody();
+
+        // @js: 动态搜索地址（Legado 里这类源用脚本拼 API 地址，如思路客、顶点小说）：
+        // 先把 {{key}} 换成实际关键字，再跑脚本算出真实 URL
+        if (rawUrl.startsWith("@js:")) {
+            JsContext jsCtx = new JsContext(s.getBaseUrl(), s.getBaseUrl(), null);
+            String generated = JsRuleEngine.run(
+                    rawUrl.substring(4).replace("{{key}}", key), "", null, jsCtx);
+            if (generated == null || generated.trim().isEmpty()) {
+                throw new IllegalArgumentException("该书源的搜索地址由 JS 动态生成，但脚本没返回有效地址");
+            }
+            DynamicUrl du = parseDynamicUrl(generated);
+            rawUrl = du.path;
+            if (du.method != null) {
+                method = du.method;
+            }
+            if (du.body != null) {
+                body = du.body;
+            }
+        }
+        if (rawUrl.isEmpty()) {
+            throw new IllegalArgumentException("该书源的搜索地址为空，请到高级模式补充");
+        }
+
+        String url = absolute(s.getBaseUrl(), rawUrl.replace("{{key}}", key));
+        if (body != null) {
+            body = body.replace("{{key}}", key);
+        }
 
         Document doc;
         try {
-            doc = JsoupFetcher.fetch(url, r.getMethod(), body);
+            doc = JsoupFetcher.fetch(url, method, body);
         } catch (Exception e) {
             log.warn("搜索抓取失败 url={}", url, e);
             throw new IllegalArgumentException("搜索失败，网站可能访问不了或规则不适配：" + e.getMessage());
@@ -66,15 +98,23 @@ public class BookService {
 
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         if (r.getList() != null && !r.getList().trim().isEmpty()) {
-            for (Element item : doc.select(r.getList())) {
+            // JS 规则要用到书源地址和当前页面地址，构造上下文传下去
+            JsContext ctx = new JsContext(s.getBaseUrl(), url, doc);
+            for (Element item : LegadoRuleParser.select(doc, r.getList())) {
                 Map<String, Object> m = new LinkedHashMap<String, Object>();
-                m.put("name", RuleParser.text(item, r.getName()));
-                m.put("author", RuleParser.text(item, r.getAuthor()));
-                m.put("intro", RuleParser.text(item, r.getIntro()));
-                m.put("coverUrl", RuleParser.text(item, r.getCover()));
-                m.put("bookUrl", RuleParser.text(item, r.getBookUrl()));
+                m.put("name", RuleParser.text(item, r.getName(), ctx));
+                m.put("author", RuleParser.text(item, r.getAuthor(), ctx));
+                m.put("intro", RuleParser.text(item, r.getIntro(), ctx));
+                m.put("coverUrl", RuleParser.text(item, r.getCover(), ctx));
+                String bookUrl = RuleParser.text(item, r.getBookUrl(), ctx);
+                // JS 规则常只返回相对路径（如 /b/236324.html），补成绝对地址，
+                // 否则 App 存进书架后详情/目录都抓不到
+                if (!bookUrl.isEmpty() && !bookUrl.startsWith("http")) {
+                    bookUrl = resolveUrl(url, bookUrl);
+                }
+                m.put("bookUrl", bookUrl);
                 // 书名和链接都没有的项是脏数据，跳过
-                if (m.get("name").toString().isEmpty() || m.get("bookUrl").toString().isEmpty()) {
+                if (m.get("name").toString().isEmpty() || bookUrl.isEmpty()) {
                     continue;
                 }
                 result.add(m);
@@ -94,14 +134,15 @@ public class BookService {
 
         SourceRules.DetailRule r = parseRules(s).getDetail();
         Document doc = fetchPage(s, bookUrl, "详情页");
+        JsContext ctx = new JsContext(s.getBaseUrl(), bookUrl, doc);
 
         Map<String, Object> m = new LinkedHashMap<String, Object>();
-        m.put("name", r != null ? RuleParser.text(doc, r.getName()) : "");
-        m.put("author", r != null ? RuleParser.text(doc, r.getAuthor()) : "");
-        m.put("coverUrl", r != null ? RuleParser.text(doc, r.getCover()) : "");
-        m.put("intro", r != null ? RuleParser.text(doc, r.getIntro()) : "");
-        m.put("latestChapter", r != null ? RuleParser.text(doc, r.getLatestChapter()) : "");
-        m.put("updateTime", r != null ? RuleParser.text(doc, r.getUpdateTime()) : "");
+        m.put("name", r != null ? RuleParser.text(doc, r.getName(), ctx) : "");
+        m.put("author", r != null ? RuleParser.text(doc, r.getAuthor(), ctx) : "");
+        m.put("coverUrl", r != null ? RuleParser.text(doc, r.getCover(), ctx) : "");
+        m.put("intro", r != null ? RuleParser.text(doc, r.getIntro(), ctx) : "");
+        m.put("latestChapter", r != null ? RuleParser.text(doc, r.getLatestChapter(), ctx) : "");
+        m.put("updateTime", r != null ? RuleParser.text(doc, r.getUpdateTime(), ctx) : "");
         if (m.get("name").toString().isEmpty()) {
             m.put("name", doc.title()); // 兜底用网页标题
         }
@@ -147,9 +188,10 @@ public class BookService {
                 break; // 防止死循环
             }
             Document doc = fetchPage(s, current, "目录页");
-            for (Element a : doc.select(r.getList())) {
-                String title = RuleParser.text(a, titleRule);
-                String chapterUrl = RuleParser.text(a, urlRule);
+            JsContext ctx = new JsContext(s.getBaseUrl(), current, doc);
+            for (Element a : LegadoRuleParser.select(doc, r.getList())) {
+                String title = RuleParser.text(a, titleRule, ctx);
+                String chapterUrl = RuleParser.text(a, urlRule, ctx);
                 if (title.isEmpty() || chapterUrl.isEmpty()) {
                     continue;
                 }
@@ -205,7 +247,7 @@ public class BookService {
             }
             // 一页里可能有多个正文容器：有的站把章内分页（1/5~5/5）全塞在同一个 HTML 里，
             // 所以取全部匹配依次拼接，而不是只取第一个（只取第一个会丢 4/5 的内容）
-            Elements boxes = doc.select(r.getSelector());
+            Elements boxes = LegadoRuleParser.select(doc, r.getSelector());
             if (boxes.isEmpty() && page == 0) {
                 throw new IllegalArgumentException("正文选择器没匹配到内容：" + r.getSelector());
             }
@@ -248,6 +290,41 @@ public class BookService {
     }
 
     // ---------- 私有工具 ----------
+
+    /**
+     * 解析 JS 生成的搜索地址。脚本返回的可能是
+     *   https://m.siluke.com/search.php,{'body':'...','method':'POST'}
+     * 这种「地址 + 配置」形式，这里把配置拆出来。
+     */
+    private static DynamicUrl parseDynamicUrl(String raw) {
+        DynamicUrl d = new DynamicUrl();
+        String s = raw.trim();
+        int brace = s.indexOf(",{");
+        if (brace < 0) {
+            d.path = s;
+            return d;
+        }
+        d.path = s.substring(0, brace).trim();
+        String conf = s.substring(brace + 1);
+        Matcher m = Pattern.compile("'([\\w-]+)'\\s*:\\s*'([^']*)'").matcher(conf);
+        while (m.find()) {
+            String k = m.group(1);
+            String v = m.group(2);
+            if ("method".equalsIgnoreCase(k)) {
+                d.method = v.toUpperCase();
+            } else if ("body".equals(k)) {
+                d.body = v;
+            }
+        }
+        return d;
+    }
+
+    /** JS 动态生成的搜索请求 */
+    private static class DynamicUrl {
+        String path = "";
+        String method = null;
+        String body = null;
+    }
 
     private boolean isMock(BookSource s) {
         return SourceService.MOCK_BASE_URL.equals(s.getBaseUrl());
@@ -339,7 +416,16 @@ public class BookService {
      */
     private String firstValidHref(Document doc, String selector) {
         for (String one : selector.split(",")) {
-            for (Element a : doc.select(one.trim())) {
+            String sel = one.trim();
+            // 规则可能写成 ".sumchapter a@href"（Legado 风格），把取值后缀去掉
+            int at = sel.lastIndexOf('@');
+            if (at > 0) {
+                String tail = sel.substring(at + 1).trim();
+                if ("href".equals(tail) || "src".equals(tail)) {
+                    sel = sel.substring(0, at).trim();
+                }
+            }
+            for (Element a : LegadoRuleParser.select(doc, sel)) {
                 String href = a.attr("abs:href");
                 if (href.startsWith("http")) {
                     return href;

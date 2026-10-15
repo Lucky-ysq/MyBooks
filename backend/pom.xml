@@ -18,7 +18,10 @@
     <description>遇夏小说后端：书源管理 + 小说站抓取解析</description>
 
     <properties>
-        <java.version>8</java.version>
+        <!-- 用 JDK 17 编译与运行（本机路径：F:\java17\jdk17.0.20_12）
+             注意：构建/启动前要把 JAVA_HOME 指到 JDK 17，
+             否则会用到系统里默认的 JDK 21，见 docs/03 开发环境搭建 -->
+        <java.version>17</java.version>
     </properties>
 
     <dependencies>
@@ -47,6 +50,15 @@
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
+        </dependency>
+
+        <!-- Rhino：纯 Java 的 JS 引擎，用来执行 Legado 书源里的 <js> 脚本规则。
+             Legado（「阅读」App）本身就是用 Rhino 跑的，用它才能最大程度兼容。
+             选 1.7.14 是因为它是最后一个支持 Java 8 的版本（1.7.15 起要求 Java 11）。 -->
+        <dependency>
+            <groupId>org.mozilla</groupId>
+            <artifactId>rhino</artifactId>
+            <version>1.7.14</version>
         </dependency>
 
         <!-- Lombok：注解生成 getter/setter -->

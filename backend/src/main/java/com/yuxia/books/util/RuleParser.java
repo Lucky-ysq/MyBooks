@@ -37,8 +37,20 @@ public class RuleParser {
     }
 
     public static String text(Element root, String rule) {
+        return text(root, rule, null);
+    }
+
+    /**
+     * 带 JS 上下文的求值。规则里出现 Legado 私有语法（class.x.0@tag.a、XPath、
+     * &lt;js&gt; 脚本、&amp;&amp; 拼接等）时转交 {@link LegadoRuleParser}，
+     * 其余仍按本项目原有的「标准 CSS + 逗号回退」逻辑处理。
+     */
+    public static String text(Element root, String rule, LegadoRuleParser.JsContext ctx) {
         if (rule == null || rule.trim().isEmpty()) {
             return "";
+        }
+        if (LegadoRuleParser.matches(rule)) {
+            return LegadoRuleParser.getString(root, rule, ctx);
         }
         // 先切出清洗段：规则##正则##替换##正则##替换...
         String[] seg = rule.split("##");

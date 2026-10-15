@@ -70,6 +70,8 @@ public class JsoupFetcher {
         Connection conn = Jsoup.connect(url)
                 .userAgent(UA)
                 .timeout(20000)
+                // 不少书源是 API 型（返回 JSON/纯文本），不能因为 content-type 不是 HTML 就拒绝
+                .ignoreContentType(true)
                 .referrer(originOf(url));
         if ("POST".equalsIgnoreCase(method) && body != null && !body.isEmpty()) {
             conn.requestBody(body)

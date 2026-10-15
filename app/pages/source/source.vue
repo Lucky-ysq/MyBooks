@@ -16,7 +16,9 @@
 
     <!-- 添加按钮 -->
     <button class="add-btn" @click="openEditor(null)">+ 添加书源</button>
+    <button class="add-btn import-btn" @click="openImport">⇩ 从订阅批量导入</button>
     <text class="tip">简单模式只需填名称和网址；个别网站结构不同时用「高级模式」改解析规则</text>
+    <text class="tip">「从订阅导入」支持 Legado（「阅读」App）的订阅地址，可一次导入几十个书源</text>
 
     <!-- 编辑器弹层 -->
     <view v-if="editing" class="mask" @click="editing = false">
@@ -48,6 +50,23 @@
         <text v-if="testResult" class="e-test-result">{{ testResult }}</text>
       </scroll-view>
     </view>
+
+    <!-- 订阅导入弹层 -->
+    <view v-if="showImport" class="mask" @click="showImport = false">
+      <scroll-view scroll-y class="editor" @click.stop>
+        <text class="e-title">从订阅批量导入</text>
+        <text class="e-hint">填 Legado（「阅读」App）的书源订阅地址。后端会下载、转换后批量入库；网址已存在的书源会更新而不是重复添加。</text>
+
+        <text class="e-label">订阅地址</text>
+        <input class="e-input" v-model="importUrl" placeholder="https://.../shuyuan" />
+
+        <view class="e-btns">
+          <button size="mini" class="e-btn" @click="showImport = false">取消</button>
+          <button size="mini" class="e-btn" @click="doImport" :disabled="importing">{{ importing ? '导入中…' : '开始导入' }}</button>
+        </view>
+        <text v-if="importResult" class="e-test-result">{{ importResult }}</text>
+      </scroll-view>
+    </view>
   </view>
 </template>
 
@@ -63,6 +82,10 @@ export default {
       testing: false,
       testResult: '',
       keyPlaceholder: '{{key}}',
+      showImport: false,
+      importUrl: '',
+      importing: false,
+      importResult: '',
       form: { id: null, name: '', baseUrl: '', rules: '' }
     }
   },
@@ -75,6 +98,37 @@ export default {
         this.sources = list || []
       }).catch(err => {
         uni.showToast({ title: String(err), icon: 'none' })
+      })
+    },
+    /** 打开订阅导入弹层 */
+    openImport() {
+      this.importUrl = this.importUrl || ''
+      this.importResult = ''
+      this.showImport = true
+    },
+    /** 从订阅地址批量导入书源 */
+    doImport() {
+      const url = (this.importUrl || '').trim()
+      if (!url) {
+        uni.showToast({ title: '请填订阅地址', icon: 'none' })
+        return
+      }
+      if (!/^https?:\/\//.test(url)) {
+        uni.showToast({ title: '地址要以 http 开头', icon: 'none' })
+        return
+      }
+      this.importing = true
+      this.importResult = ''
+      api.importSources(url).then(r => {
+        this.importing = false
+        const msg = '共 ' + r.total + ' 条：新增 ' + r.imported
+          + '、更新 ' + r.updated + '、跳过 ' + r.skipped
+        this.importResult = msg
+        this.load()
+        uni.showToast({ title: '导入完成', icon: 'success' })
+      }).catch(err => {
+        this.importing = false
+        this.importResult = '导入失败：' + err
       })
     },
     openEditor(source) {
@@ -235,6 +289,13 @@ export default {
   background: #e8383d;
   color: #ffffff;
   border-radius: 44rpx;
+}
+/* 「从订阅批量导入」按钮：次要动作，用描边弱化，避免和主按钮抢焦点 */
+.import-btn {
+  margin-top: 16rpx;
+  background: #ffffff;
+  color: #e8383d;
+  border: 1rpx solid #e8383d;
 }
 .tip {
   display: block;
